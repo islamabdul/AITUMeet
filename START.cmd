@@ -6,6 +6,6 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Open http://127.0.0.1:3000 in your browser.
-node local-server.mjs
+echo Open http://127.0.0.1:3000
+node server.mjs
 pause

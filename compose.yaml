@@ -2,11 +2,10 @@ services:
   aitumeet:
     build: .
     restart: unless-stopped
-    env_file: .env
+    ports:
+      - "3000:3000"
     environment:
-      DATABASE_PATH: /app/data/aitumeet.sqlite3
-    volumes:
-      - aitumeet_data:/app/data
-    stop_grace_period: 45s
-volumes:
-  aitumeet_data:
+      HOST: 0.0.0.0
+      PORT: 3000
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}

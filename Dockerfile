@@ -1,9 +1,8 @@
-FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 DATABASE_PATH=/app/data/aitumeet.sqlite3
+FROM node:22-alpine
 WORKDIR /app
-RUN useradd --create-home --uid 10001 bot && mkdir /app/data && chown bot:bot /app/data
-COPY --chown=bot:bot aitumeet ./aitumeet
-COPY --chown=bot:bot run.py ./run.py
-USER bot
-VOLUME ["/app/data"]
-CMD ["python", "run.py"]
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+COPY --chown=node:node public ./public
+COPY --chown=node:node server.mjs ./server.mjs
+USER node
+EXPOSE 3000
+CMD ["node", "server.mjs"]
