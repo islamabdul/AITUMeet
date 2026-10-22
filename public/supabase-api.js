@@ -15,7 +15,7 @@ window.AituAPI = (() => {
  function unwrap({data,error}){
   if(error){
    const message=(error.message||'').toLowerCase();
-   const code=error.code==='23505'?'usernameTaken':message.includes('invalid login credentials')?'wrongCredentials':message.includes('email not confirmed')?'confirmEmail':message.includes('rate limit')||error.status===429?'tooManyAttempts':message.includes('password')?'passwordInvalid':message.includes('failed to fetch')||message.includes('network')?'networkError':error.code==='PGRST116'?'notFound':'requestFailed';
+   const code=error.code==='23505'?'usernameTaken':message.includes('invalid login credentials')?'wrongCredentials':message.includes('email not confirmed')?'authSetupRequired':message.includes('rate limit')||error.status===429?'tooManyAttempts':message.includes('password')?'passwordInvalid':message.includes('failed to fetch')||message.includes('network')?'networkError':error.code==='PGRST116'?'notFound':'requestFailed';
    fail(code);
   }return data;
  }
@@ -40,10 +40,10 @@ window.AituAPI = (() => {
   if(!/^[0-9]{6}@astanait\.edu\.kz$/.test(email))fail('emailInvalid');
   if(!/^[a-z][a-z0-9_]{2,23}$/.test(username))fail('usernameInvalid');
   if(password.length<8||password.length>128)fail('passwordInvalid');
-  const redirect=new URL('index.html',location.href).href;
-  const {data,error}=await connection().auth.signUp({email,password,options:{data:{name:name.trim(),username,...academic},emailRedirectTo:redirect}});
+  const {data,error}=await connection().auth.signUp({email,password,options:{data:{name:name.trim(),username,...academic}}});
   if(error){if(error.code==='23505'||/username|duplicate/i.test(error.message))fail('usernameTaken');if(/rate limit/i.test(error.message))fail('tooManyAttempts');fail('signupFailed');}
-  return {confirmation:!data.session,user:data.session?await current():null};
+  if(!data.session)fail('authSetupRequired');
+  return {user:await current()};
  }
  async function signIn({email,password}){unwrap(await connection().auth.signInWithPassword({email:email.trim().toLowerCase(),password}));return current();}
  async function signOut(){unwrap(await connection().auth.signOut({scope:'local'}));signed.clear();}

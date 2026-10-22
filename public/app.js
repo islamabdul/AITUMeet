@@ -89,9 +89,8 @@ async function changeLanguage(language){
  I18N.set(language);shell();await render();
  $$('#content input[name],#content textarea[name],#content select[name]').forEach(e=>{const key=(e.closest('form')?.id||'')+':'+e.name;if(key in mainValues)e.value=mainValues[key];});
  if($('#composePreview')){$('#composePreview').innerHTML=preview;composeImage=image;}
- if(wasOpen){if(['login','register'].includes(mode))openAuth(mode);else if(mode==='edit')editProfile();else if(mode==='password')passwordForm();else if(mode==='delete')deleteDialog(extra);else if(mode==='confirmation')confirmationDialog();$$('#modal input[name],#modal textarea[name],#modal select[name]').forEach(e=>{if(e.type!=='file'&&e.name in dialogValues){e.value=dialogValues[e.name];if(e.name==='school')refreshAcademics(e.form,true);}});refreshAcademics($('#modal form'));}
+ if(wasOpen){if(['login','register'].includes(mode))openAuth(mode);else if(mode==='edit')editProfile();else if(mode==='password')passwordForm();else if(mode==='delete')deleteDialog(extra);$$('#modal input[name],#modal textarea[name],#modal select[name]').forEach(e=>{if(e.type!=='file'&&e.name in dialogValues){e.value=dialogValues[e.name];if(e.name==='school')refreshAcademics(e.form,true);}});refreshAcademics($('#modal form'));}
 }
-function confirmationDialog(){modal('confirmation',`<h2 id="modalTitle">${t('confirmationSent')}</h2><p class="subtitle">${t('confirmationText')}</p><button class="btn primary" data-action="login">${t('login')}</button>`);}
 async function act(action,el){const id=el?.dataset.id,username=el?.dataset.username;
  if(['login','register'].includes(action))return openAuth(action);
  if(action==='close'){if(!authBusy)$('#modal').close();return;}
@@ -127,7 +126,7 @@ document.addEventListener('submit',async e=>{
  const data=Object.fromEntries(new FormData(form)),button=form.querySelector('button[type="submit"],button:not([type])'),error=form.querySelector('.form-error');form.dataset.busy='1';if(button)button.disabled=true;if(error)error.textContent='';
  try{
   if(form.id==='authForm'){authBusy=true;const register=form.dataset.mode==='register';if(register&&data.password!==data.confirm)throw {code:'passwordMismatch'};
-   if(register){const result=await API.signUp(data);if(result.confirmation){confirmationDialog();return;}me=result.user;}else me=await API.signIn(data);
+   if(register){const result=await API.signUp(data);me=result.user;}else me=await API.signIn(data);
    $('#modal').close();shell();location.hash=register?'profile':'feed';await render();toast(t('signedIn',{name:me.name}));if(register)editProfile();
   }
   if(form.id==='composer'){if(!data.body.trim()&&!composeImage)throw {code:'emptyPost'};await API.publish({body:data.body,tag:data.tag,image_path:composeImage});composeImage='';await render();toast(t('postedToast'));}
