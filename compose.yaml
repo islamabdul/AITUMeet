@@ -1,0 +1,12 @@
+services:
+  aitumeet:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/aitumeet.sqlite3
+    volumes:
+      - aitumeet_data:/app/data
+    stop_grace_period: 45s
+volumes:
+  aitumeet_data:
