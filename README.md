@@ -1,4 +1,4 @@
-# AITUMeet — Supabase
+# AITUMeet
 
 ## [Открыть сайт AITUMeet →](https://islamabdul.github.io/AITUMeet/)
 
