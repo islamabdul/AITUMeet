@@ -1,5 +1,5 @@
 -- AITUMeet. Run once in a NEW Supabase project via SQL Editor.
--- No demo records. Email confirmation must remain enabled in Supabase Auth.
+-- No demo records. Configure Supabase Auth with Confirm email disabled for immediate sign-up.
 begin;
 create schema if not exists aitu_private;
 revoke all on schema aitu_private from public, anon, authenticated;
@@ -73,7 +73,7 @@ create index aitu_messages_recipient_idx on public.aitu_messages(recipient_id,cr
 create function public.aitu_is_member() returns boolean
 language sql stable security definer set search_path = '' as $$
  select exists(select 1 from aitu_private.student_accounts a join auth.users u on u.id=a.user_id
- where a.user_id=auth.uid() and u.email_confirmed_at is not null);
+ where a.user_id=auth.uid() and lower(u.email) ~ '^[0-9]{6}@astanait\.edu\.kz$');
 $$;
 revoke all on function public.aitu_is_member() from public, anon;
 grant execute on function public.aitu_is_member() to authenticated;
