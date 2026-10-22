@@ -25,3 +25,21 @@ test('unconfigured Supabase stays empty and reports an explicit setup error',asy
 test('browser adapter refuses privileged Supabase keys',async()=>{
  const env={window:{AITU_CONFIG:{supabaseUrl:'https://test.supabase.co',supabasePublishableKey:'sb_secret_test'}},Map,Set};vm.runInNewContext(file('public/supabase-api.js'),env);await assert.rejects(env.window.AituAPI.search(),e=>e.code==='unsafeKey');
 });
+
+test('sign-up starts a session immediately and does not pretend success without one',async()=>{
+ const env=environment(),user={id:'student-uuid',email:'001234@astanait.edu.kz'},profile={id:user.id,username:'student',name:'Student'};
+ let session={user},request;
+ env.window.AITU_CONFIG={supabaseUrl:'https://test.supabase.co',supabasePublishableKey:'sb_publishable_test'};
+ env.window.supabase={createClient:()=>({
+  auth:{signUp:async input=>{request=input;return {data:{user,session},error:null};},getSession:async()=>({data:{session}}),getUser:async()=>({data:{user}})},
+  from:()=>({select:()=>({eq:()=>({single:async()=>({data:profile,error:null})})})})
+ })};
+ vm.runInNewContext(file('public/academics.js'),env);vm.runInNewContext(file('public/supabase-api.js'),env);
+ const input={email:'001234@astanait.edu.kz',password:'test-password',name:' Student ',username:'student',program_code:'6B07102',course:1,group_number:'01'};
+ const result=await env.window.AituAPI.signUp(input);
+ assert.equal(result.user.username,'student');assert.equal(request.email,input.email);
+ assert.equal(request.options.data.program_code,'6B07102');assert.equal(request.options.data.group_number,'01');assert.equal(request.options.data.name,'Student');
+ assert.equal('emailRedirectTo' in request.options,false);assert.equal('confirmation' in result,false);
+ session=null;await assert.rejects(env.window.AituAPI.signUp(input),error=>error.code==='authSetupRequired');
+ await assert.rejects(env.window.AituAPI.signUp({...input,email:'student@gmail.com'}),error=>error.code==='emailInvalid');
+});

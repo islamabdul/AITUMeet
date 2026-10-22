@@ -13,7 +13,7 @@ const setup=async db=>db.exec(`create role anon;create role authenticated;create
   grant select,insert,delete on storage.objects to authenticated;
   create function storage.foldername(name text) returns text[] language sql immutable as $$select string_to_array(name,'/')$$;`);
 
-test('Supabase schema: privacy, confirmed membership, ownership and private messages',async()=>{
+test('Supabase schema: student membership without email confirmation, ownership and privacy',async()=>{
  const db=new PGlite();
  try{
   // An in-memory test harness, never an application database or Supabase connection.
@@ -66,10 +66,39 @@ test('Supabase schema: privacy, confirmed membership, ownership and private mess
   await assert.rejects(db.query(`update public.aitu_messages set body='Tampered' where id=$1`,[message]));
   await db.query(`insert into storage.objects(bucket_id,name) values('aitu-media',$1)`,[b+'/photo.png']);
   await assert.rejects(db.query(`insert into storage.objects(bucket_id,name) values('aitu-media',$1)`,[a+'/photo.png']));
-  await as(unconfirmed);assert.equal((await db.query('select * from public.aitu_profile_cards')).rows.length,0);assert.equal((await db.query('select * from public.aitu_feed')).rows.length,0);assert.equal((await db.query('select * from storage.objects')).rows.length,0);
-  await assert.rejects(db.query(`insert into public.aitu_posts(author_id,body) values($1,'Unconfirmed')`,[unconfirmed]));
+  await as(unconfirmed);assert.equal((await db.query('select * from public.aitu_profile_cards')).rows.length,4);assert.equal((await db.query('select * from public.aitu_feed')).rows.length,1);assert.equal((await db.query('select * from storage.objects')).rows.length,1);
+  await db.query(`insert into public.aitu_posts(author_id,body) values($1,'No email confirmation required')`,[unconfirmed]);
+  await assert.rejects(db.query('select * from aitu_private.student_accounts'));
+  assert.equal((await db.query('select * from public.aitu_messages')).rows.length,0);
+  await assert.rejects(db.query(`insert into public.aitu_posts(author_id,body) values($1,'Impersonation')`,[a]));
+  await as('55555555-5555-4555-8555-555555555555');
+  assert.equal((await db.query('select * from public.aitu_profile_cards')).rows.length,0);
+  assert.equal((await db.query('select * from public.aitu_feed')).rows.length,0);
+  await assert.rejects(db.query(`insert into public.aitu_posts(author_id,body) values($1,'No student account')`,['55555555-5555-4555-8555-555555555555']));
   await as('', 'anon');await assert.rejects(db.query('select * from public.aitu_profiles'));await assert.rejects(db.query('select * from aitu_private.student_accounts'));
   await db.exec('reset role');const columns=(await db.query(`select table_name,column_name from information_schema.columns where table_schema='public' and table_name like 'aitu_%'`)).rows;assert.equal(columns.filter(c=>/barcode|student_code|email/.test(c.column_name)).length,0);
+ }finally{await db.close();}
+});
+
+test('optional email confirmation migration preserves accounts and content when applied twice',async()=>{
+ const db=new PGlite();try{
+  await setup(db);await db.exec(readFileSync(new URL('../supabase/schema.sql',import.meta.url),'utf8'));
+  const id='11111111-1111-4111-8111-111111111111';
+  await db.query(`insert into auth.users values($1,'001234@astanait.edu.kz',null,'{"name":"Student","username":"existing","group_number":"01"}')`,[id]);
+  await db.query(`insert into public.aitu_posts(author_id,body) values($1,'Keep this post')`,[id]);
+  await db.exec(`create or replace function public.aitu_is_member() returns boolean language sql stable security definer set search_path='' as $$
+   select exists(select 1 from aitu_private.student_accounts a join auth.users u on u.id=a.user_id where a.user_id=auth.uid() and u.email_confirmed_at is not null);$$;`);
+  await db.query(`select set_config('request.jwt.claim.sub',$1,false)`,[id]);await db.exec('set role authenticated');
+  assert.equal((await db.query('select * from public.aitu_feed')).rows.length,0);
+  await db.exec('reset role');
+  const migration=readFileSync(new URL('../supabase/migrations/20261022_optional_email_confirmation.sql',import.meta.url),'utf8');
+  await db.exec(migration);await db.exec(migration);
+  assert.equal((await db.query('select email_confirmed_at from auth.users')).rows[0].email_confirmed_at,null);
+  assert.equal((await db.query('select student_code from aitu_private.student_accounts')).rows[0].student_code,'001234');
+  await db.exec('set role authenticated');
+  assert.equal((await db.query('select body from public.aitu_feed')).rows[0].body,'Keep this post');
+  assert.equal((await db.query('select username from public.aitu_profile_cards')).rows[0].username,'existing');
+  await assert.rejects(db.query('select * from aitu_private.student_accounts'));
  }finally{await db.close();}
 });
 
