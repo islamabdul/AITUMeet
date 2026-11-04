@@ -1,0 +1,1 @@
+create or replace function public.aitu_is_moderator() returns boolean language sql stable security invoker set search_path='' as $$ select aitu_private.is_moderator(); $$; revoke all on function public.aitu_is_moderator() from public,anon; grant execute on function public.aitu_is_moderator() to authenticated;

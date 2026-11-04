@@ -31,6 +31,8 @@ window.AituAPI = (() => {
   if(!configured())return null;
   const session=unwrap(await connection().auth.getSession());if(!session.session)return null;
   const user=await identity();
+  const ban=unwrap(await connection().from('aitu_bans').select('reason,expires_at').eq('user_id',user.id).is('lifted_at',null).maybeSingle());
+  if(ban&&(!ban.expires_at||Date.parse(ban.expires_at)>Date.now()))throw Object.assign(new Error('accountBanned'),{code:'accountBanned',ban});
   const row=unwrap(await connection().from('aitu_profile_cards').select('*').eq('id',user.id).single());
   return (await profiles([row]))[0];
  }
@@ -46,12 +48,19 @@ window.AituAPI = (() => {
   return {user:await current()};
  }
  async function signIn({email,password}){unwrap(await connection().auth.signInWithPassword({email:email.trim().toLowerCase(),password}));return current();}
+ async function signInWithMicrosoft(){const {error}=await connection().auth.signInWithOAuth({provider:'azure',options:{scopes:'email',redirectTo:location.origin+location.pathname}});if(error)unwrap({data:null,error});}
+ async function signInWithGoogle(){const {error}=await connection().auth.signInWithOAuth({provider:'google',options:{scopes:'openid email profile',queryParams:{hd:'astanait.edu.kz',prompt:'select_account'},redirectTo:location.origin+location.pathname}});if(error)unwrap({data:null,error});}
  async function signOut(){unwrap(await connection().auth.signOut({scope:'local'}));signed.clear();}
  async function search(q=''){
   let query=connection().from('aitu_profile_cards').select('*').order('created_at',{ascending:false}).limit(60);
   const needle=q.replace(/^@/,'').replace(/[^\p{L}\p{N}_ -]/gu,'').slice(0,60);
   if(needle)query=query.or(`name.ilike.*${needle}*,username.ilike.*${needle}*,major.ilike.*${needle}*,group_name.ilike.*${needle}*`);
   return profiles(unwrap(await query)||[]);
+ }
+ async function searchPosts(q=''){
+  const needle=q.trim().replace(/[\\%_]/g,'').slice(0,100);if(!needle)return [];
+  const rows=unwrap(await connection().from('aitu_feed').select('*').ilike('body',`%${needle}%`).order('created_at',{ascending:false}).limit(30))||[];
+  const url=await media(rows.flatMap(x=>[x.image_path,x.avatar_path]));return rows.map(x=>({...x,image:url(x.image_path),avatar:url(x.avatar_path)}));
  }
  async function updateProfile(d){const u=await identity();const username=d.username.trim().replace(/^@/,'').toLowerCase();if(!/^[a-z][a-z0-9_]{2,23}$/.test(username))fail('usernameInvalid');unwrap(await connection().from('aitu_profiles').update({username,name:d.name.trim(),bio:d.bio,...window.AituAcademics.normalize(d),interests:d.interests,avatar_path:d.avatar_path,cover_path:d.cover_path}).eq('id',u.id));return current();}
  async function upload(file){
@@ -62,9 +71,9 @@ window.AituAPI = (() => {
   unwrap(await connection().storage.from(config.storageBucket||'aitu-media').upload(path,file,{contentType:ext==='jpg'?'image/jpeg':'image/'+ext,upsert:false}));
   const get=await media([path]);return {path,url:get(path)};
  }
- async function feed({username,tag,saved,following,before,id}={}){
+ async function feed({username,tag,saved,following,before,id,q}={}){
   let query=connection().from('aitu_feed').select('*').order('created_at',{ascending:false}).order('id',{ascending:false}).limit(30);
-  if(id)query=query.eq('id',id);if(username)query=query.eq('username',username);if(tag)query=query.eq('tag',tag);if(saved)query=query.eq('saved',true);
+  if(id)query=query.eq('id',id);if(username)query=query.eq('username',username);if(tag)query=query.eq('tag',tag);if(saved)query=query.eq('saved',true);if(q)query=query.ilike('body',`%${q.replace(/[\\%_]/g,'').slice(0,100)}%`);
   if(before)query=query.or(`created_at.lt.${before.created_at},and(created_at.eq.${before.created_at},id.lt.${before.id})`);
   if(following){const u=await identity(),links=unwrap(await connection().from('aitu_follows').select('following_id').eq('follower_id',u.id));query=query.in('author_id',[u.id,...links.map(x=>x.following_id)]);}
   const rows=unwrap(await query)||[],url=await media(rows.flatMap(x=>[x.image_path,x.avatar_path]));
@@ -72,6 +81,15 @@ window.AituAPI = (() => {
  }
  async function publish({body,tag,image_path=''}){const u=await identity();return unwrap(await connection().from('aitu_posts').insert({author_id:u.id,body:body.trim(),tag,image_path}).select('id').single());}
  async function removePost(id){unwrap(await connection().from('aitu_posts').delete().eq('id',id));}
+ async function isModerator(){return !!unwrap(await connection().rpc('aitu_is_moderator'));}
+ async function warnings(userId){return unwrap(await connection().from('aitu_warnings').select('id,reason,created_at,revoked_at').eq('user_id',userId).order('created_at',{ascending:false}).limit(50))||[];}
+ async function activeBan(userId){const row=unwrap(await connection().from('aitu_bans').select('id,user_id,reason,created_at,expires_at,lifted_at').eq('user_id',userId).is('lifted_at',null).maybeSingle());return row&&(!row.expires_at||Date.parse(row.expires_at)>Date.now())?row:null;}
+ async function warnUser(userId,reason){const u=await identity();unwrap(await connection().from('aitu_warnings').insert({user_id:userId,issued_by:u.id,reason:reason.trim()}));}
+ async function banUser(userId,reason,duration){const u=await identity(),existing=unwrap(await connection().from('aitu_bans').select('id,expires_at').eq('user_id',userId).is('lifted_at',null).maybeSingle());if(existing){if(!existing.expires_at||Date.parse(existing.expires_at)>Date.now())fail('accountAlreadyBanned');unwrap(await connection().from('aitu_bans').update({lifted_at:new Date().toISOString(),lifted_by:u.id}).eq('id',existing.id));}const expires_at=duration?new Date(Date.now()+Number(duration)*86400000).toISOString():null;unwrap(await connection().from('aitu_bans').insert({user_id:userId,issued_by:u.id,reason:reason.trim(),expires_at}));}
+ async function liftBan(userId){const u=await identity();unwrap(await connection().from('aitu_bans').update({lifted_at:new Date().toISOString(),lifted_by:u.id}).eq('user_id',userId).is('lifted_at',null));}
+ async function reportPost(postId,reason,details=''){const u=await identity();const {error}=await connection().from('aitu_reports').insert({reporter_id:u.id,post_id:postId,reason,details:details.trim()});if(error){if(error.code==='23505')fail('reportFailed');unwrap({data:null,error});}}
+ async function moderationQueue(){return unwrap(await connection().from('aitu_reports').select('id,post_id,reason,details,status,created_at,post:aitu_posts(body,author:aitu_profiles(username,name))').eq('status','pending').order('created_at',{ascending:true}).limit(100))||[];}
+ async function moderate(reportId,postId,hide){const u=await identity();if(hide)unwrap(await connection().from('aitu_posts').update({moderation_hidden:true}).eq('id',postId));unwrap(await connection().from('aitu_reports').update({status:hide?'resolved':'dismissed',reviewed_by:u.id,reviewed_at:new Date().toISOString()}).eq('id',reportId));}
  async function toggle(kind,id){const u=await identity(),table=kind==='like'?'aitu_likes':'aitu_bookmarks';const old=unwrap(await connection().from(table).select('post_id').eq('user_id',u.id).eq('post_id',id).maybeSingle());unwrap(old?await connection().from(table).delete().eq('user_id',u.id).eq('post_id',id):await connection().from(table).insert({user_id:u.id,post_id:id}));return !old;}
  async function follow(username){const u=await identity(),target=await profile(username);if(u.id===target.id)fail('ownProfile');const old=unwrap(await connection().from('aitu_follows').select('following_id').eq('follower_id',u.id).eq('following_id',target.id).maybeSingle());unwrap(old?await connection().from('aitu_follows').delete().eq('follower_id',u.id).eq('following_id',target.id):await connection().from('aitu_follows').insert({follower_id:u.id,following_id:target.id}));return !old;}
  async function comments(postId){const rows=unwrap(await connection().from('aitu_comments').select('id,body,created_at,author:aitu_profiles(username,name,avatar_path)').eq('post_id',postId).order('created_at').limit(200));const url=await media(rows.map(x=>x.author.avatar_path));return rows.map(x=>({...x,...x.author,avatar:url(x.author.avatar_path)}));}
@@ -81,5 +99,5 @@ window.AituAPI = (() => {
  async function chats(){const u=await identity(),rows=unwrap(await connection().from('aitu_messages').select('*').or(`sender_id.eq.${u.id},recipient_id.eq.${u.id}`).order('created_at',{ascending:false}).limit(300));const grouped=new Map();for(const m of rows){const id=m.sender_id===u.id?m.recipient_id:m.sender_id;if(!grouped.has(id))grouped.set(id,{last_message:m.body,unread:0});if(m.recipient_id===u.id&&!m.read_at)grouped.get(id).unread++;}if(!grouped.size)return [];const people=await profiles(unwrap(await connection().from('aitu_profiles').select('*').in('id',[...grouped.keys()])));return [...grouped].map(([id,meta])=>({...people.find(p=>p.id===id),...meta})).filter(x=>x.username);}
  async function notifications(){const u=await identity();const messages=unwrap(await connection().from('aitu_messages').select('body,created_at,author:aitu_profiles!aitu_messages_sender_id_fkey(username,name,avatar_path)').eq('recipient_id',u.id).is('read_at',null).order('created_at',{ascending:false}).limit(20));const own=unwrap(await connection().from('aitu_posts').select('id').eq('author_id',u.id));const comments=own.length?unwrap(await connection().from('aitu_comments').select('body,created_at,post_id,author:aitu_profiles(username,name,avatar_path)').in('post_id',own.map(p=>p.id)).neq('author_id',u.id).order('created_at',{ascending:false}).limit(20)):[];const rows=[...messages.map(n=>({...n,type:'message'})),...comments.map(n=>({...n,type:'comment'}))].sort((a,b)=>b.created_at.localeCompare(a.created_at));const url=await media(rows.map(x=>x.author.avatar_path));return rows.map(n=>({...n,...n.author,avatar:url(n.author.avatar_path)}));}
  async function password(old,next){const u=await identity();unwrap(await connection().auth.signInWithPassword({email:u.email,password:old}));unwrap(await connection().auth.updateUser({password:next}));unwrap(await connection().auth.signOut({scope:'global'}));}
- return {configured,current,profile,signUp,signIn,signOut,search,updateProfile,upload,feed,publish,removePost,toggle,follow,comments,comment,messages,send,chats,notifications,password};
+ return {configured,current,profile,signUp,signIn,signInWithMicrosoft,signInWithGoogle,signOut,search,searchPosts,updateProfile,upload,feed,publish,removePost,isModerator,warnings,activeBan,warnUser,banUser,liftBan,reportPost,moderationQueue,moderate,toggle,follow,comments,comment,messages,send,chats,notifications,password};
 })();
