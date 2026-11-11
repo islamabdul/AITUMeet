@@ -2,7 +2,7 @@
 window.AituAPI = (() => {
  const config=window.AITU_CONFIG||{}, signed=new Map();
  let client=null;
- const fail=code=>{throw Object.assign(new Error(code),{code});};
+ const fail=(code,debug)=>{throw Object.assign(new Error(code),{code,...(debug?{debug}:{})});};
  function configured(){return /^https:\/\/[^/]+\/?$/.test(config.supabaseUrl||'')&&!!config.supabasePublishableKey;}
  function connection(){
   if(!configured())fail('setupRequired');
@@ -16,7 +16,7 @@ window.AituAPI = (() => {
   if(error){
    const message=(error.message||'').toLowerCase();
    const code=error.code==='23505'?'usernameTaken':message.includes('invalid login credentials')?'wrongCredentials':message.includes('email not confirmed')?'authSetupRequired':message.includes('rate limit')||error.status===429?'tooManyAttempts':message.includes('password')?'passwordInvalid':message.includes('failed to fetch')||message.includes('network')?'networkError':error.code==='PGRST116'?'notFound':'requestFailed';
-   fail(code);
+   fail(code,{dbCode:error.code||'',status:error.status||'',message:error.message||'',details:error.details||'',hint:error.hint||''});
   }return data;
  }
  async function identity(){const {user}=unwrap(await connection().auth.getUser());if(!user)fail('signInRequired');return user;}

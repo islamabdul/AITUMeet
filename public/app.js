@@ -10,7 +10,8 @@ const loading=()=>`<div class="loading" role="status"><span class="spinner"></sp
 const title=(name,sub,badge='')=>`<div class="page-title"><div><span class="mobile-wordmark">AITU<span>Meet</span></span><h1>${esc(name)}</h1><p>${esc(sub)}</p></div>${badge?`<span class="live-badge"><i></i>${esc(badge)}</span>`:''}</div>`;
 const empty=(heading,body,action='people',label='findPeople',symbol='spark')=>`<div class="empty">${icon(symbol)}<h3>${t(heading)}</h3><p>${t(body)}</p>${action?`<button class="btn secondary" data-action="${action}">${t(label)} ${icon('arrow')}</button>`:''}</div>`;
 function toast(text){clearTimeout(toastTimer);$('#toast').textContent=text;$('#toast').classList.add('visible');toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),4500);}
-function showError(e){toast(t(e.code||'requestFailed'));}
+function errorText(e){const message=t(e?.code||'requestFailed'),debug=e?.debug;if(!isAdmin||!debug)return message;return `${message} [${debug.dbCode||debug.status||'Supabase'}] ${debug.message}${debug.details?' · '+debug.details:''}`;}
+function showError(e){toast(errorText(e));}
 function authRequired(){if(me)return true;openAuth('register');return false;}
 function applyStatic(){
  $$('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));$$('[data-label]').forEach(e=>e.setAttribute('aria-label',t(e.dataset.label)));$$('[data-placeholder]').forEach(e=>e.placeholder=t(e.dataset.placeholder));
@@ -65,7 +66,7 @@ async function render(){
  }else if(route.startsWith('post/')){
   if(!authRequired()){location.hash='feed';return;}posts=await API.feed({id:route.split('/')[1]});if(version!==renderVersion)return;main.innerHTML=title(t('post'),t('postSub'))+`<div id="posts">${posts.length?postList():empty('postMissing','postDeleted','feed','goFeed')}</div>`;
  }else{location.hash='feed';}
- }catch(e){if(version===renderVersion)main.innerHTML=`<div class="error-panel">${t(e.code||'requestFailed')}<br><button class="btn secondary" data-action="retry">${t('retry')}</button></div>`;}
+ }catch(e){if(version===renderVersion)main.innerHTML=`<div class="error-panel">${t(e.code||'requestFailed')}${isAdmin&&e.debug?`<small class="error-detail">${esc(errorText(e))}</small>`:''}<br><button class="btn secondary" data-action="retry">${t('retry')}</button></div>`;}
 }
 function roleBadge(u){return u.staff_role?`<span class="role-badge role-${u.staff_role}">${t(u.staff_role==='administration'?'administrationRole':'moderationRole')}</span>`:'';}
 function peopleCards(users){return users.length?`<div class="people-grid">${users.map(u=>`<article class="card person-card">${avatar(u)}${roleBadge(u)}<h3>${esc(u.name)}</h3><p>@${esc(u.username)}<br>${esc(u.major||t('student'))}${u.group_name?'<br>'+esc(u.group_name):''}</p><div class="person-actions"><button class="btn secondary" data-action="user" data-username="${u.username}">${t('viewProfile')} ${icon('arrow')}</button>${u.id!==me?.id?`<button class="btn secondary" data-action="open-chat" data-username="${u.username}" aria-label="${t('write')}">${icon('chat')}</button>`:''}</div></article>`).join('')}</div>`:empty('notFoundPeople','trySearch','','','search');}
@@ -152,7 +153,7 @@ document.addEventListener('submit',async e=>{
   if(form.classList.contains('comment-form')){const id=form.dataset.id;await API.comment(id,data.body);$('#comments-'+id).hidden=true;await showComments(id);const p=posts.find(x=>x.id===id);if(p){p.comments=Number(p.comments)+1;$(`[data-action="comments"][data-id="${id}"] span`).textContent=p.comments;}toast(t('commentedToast'));}
   if(form.id==='messageForm'){await API.send(form.dataset.username,data.body);form.reset();drawChat((await API.messages(form.dataset.username)).messages);form.querySelector('input').focus();}
   if(form.id==='passwordForm'){if(data.password!==data.confirm)throw {code:'passwordMismatch'};await API.password(data.old,data.password);me=null;$('#modal').close();shell();location.hash='feed';await render();openAuth('login');toast(t('passwordChanged'));}
- }catch(e){if(error)error.textContent=t(e.code||'requestFailed');else showError(e);}finally{delete form.dataset.busy;if(button)button.disabled=!API.configured()&&form.id==='authForm';authBusy=false;}
+ }catch(e){if(error)error.textContent=errorText(e);else showError(e);}finally{delete form.dataset.busy;if(button)button.disabled=!API.configured()&&form.id==='authForm';authBusy=false;}
 });
 document.addEventListener('input',e=>{if(e.target.name==='group_number')refreshAcademics(e.target.form);if(e.target.id==='peopleSearch'){clearTimeout(searchTimer);const q=e.target.value;$('#globalSearch').value=q;const version=++searchVersion;if(!me)return;searchTimer=setTimeout(async()=>{try{const [rows,matches]=await Promise.all([API.search(q),API.searchPosts(q)]);if(version===searchVersion&&$('#peopleGrid'))$('#peopleGrid').innerHTML=`<h2 class="section-heading">${t('people')}</h2>${peopleCards(rows)}<h2 class="section-heading">${t('matchingPosts')}</h2>${matches.length?matches.map(postCard).join(''):empty('noMatchingPosts','trySearch','','','search')}`;}catch(e){showError(e);}},250);}});
 document.addEventListener('change',async e=>{
